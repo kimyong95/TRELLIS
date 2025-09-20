@@ -70,6 +70,8 @@ fi
 if [ "$NEW_ENV" = true ] ; then
     conda create -n trellis python=3.10
     conda activate trellis
+    conda install -c nvidia/label/cuda-11.8.0 cuda-toolkit
+    conda install -c conda-forge gcc=11.2.0 gxx=11.2.0
     conda install pytorch==2.4.0 torchvision==0.19.0 pytorch-cuda=11.8 -c pytorch -c nvidia
 fi
 
@@ -170,7 +172,7 @@ fi
 
 if [ "$FLASHATTN" = true ] ; then
     if [ "$PLATFORM" = "cuda" ] ; then
-        pip install flash-attn
+        pip install flash-attn==2.7.3
     elif [ "$PLATFORM" = "hip" ] ; then
         echo "[FLASHATTN] Prebuilt binaries not found. Building from source..."
         mkdir -p /tmp/extensions
