@@ -6,7 +6,7 @@ from easydict import EasyDict as edict
 from .base import Sampler
 from .classifier_free_guidance_mixin import ClassifierFreeGuidanceSamplerMixin
 from .guidance_interval_mixin import GuidanceIntervalSamplerMixin
-
+from collections import defaultdict
 
 class FlowEulerSampler(Sampler):
     """
@@ -54,6 +54,8 @@ class FlowEulerSampler(Sampler):
         t: float,
         t_prev: float,
         cond: Optional[Any] = None,
+        noise_level: float = 0.0,
+        noise: Optional[torch.Tensor] = None,
         **kwargs
     ):
         """
@@ -73,7 +75,11 @@ class FlowEulerSampler(Sampler):
             - 'pred_x_0': a prediction of x_0.
         """
         pred_x_0, pred_eps, pred_v = self._get_model_prediction(model, x_t, t, cond, **kwargs)
-        pred_x_prev = x_t - (t - t_prev) * pred_v
+        dt = t_prev - t
+
+        noise = torch.randn(x_t.shape, device=x_t.device) if noise is None else noise
+        std_dev_t = np.sqrt(t / (1 - np.where(t == 1, t_prev, t)))*noise_level
+        pred_x_prev = x_t*(1+std_dev_t**2/(2*t)*dt) + pred_v*(1+std_dev_t**2*(1-t)/(2*t))*dt + std_dev_t * np.sqrt(-1*dt) * noise
         return edict({"pred_x_prev": pred_x_prev, "pred_x_0": pred_x_0})
 
     @torch.no_grad()
@@ -85,6 +91,8 @@ class FlowEulerSampler(Sampler):
         steps: int = 50,
         rescale_t: float = 1.0,
         verbose: bool = True,
+        intermediate_noise = defaultdict(lambda: None),
+        noise_level: float = 0.0,
         **kwargs
     ):
         """
@@ -110,8 +118,8 @@ class FlowEulerSampler(Sampler):
         t_seq = rescale_t * t_seq / (1 + (rescale_t - 1) * t_seq)
         t_pairs = list((t_seq[i], t_seq[i + 1]) for i in range(steps))
         ret = edict({"samples": None, "pred_x_t": [], "pred_x_0": []})
-        for t, t_prev in tqdm(t_pairs, desc="Sampling", disable=not verbose):
-            out = self.sample_once(model, sample, t, t_prev, cond, **kwargs)
+        for i, (t, t_prev) in tqdm(enumerate(t_pairs), desc="Sampling", disable=not verbose):
+            out = self.sample_once(model, sample, t, t_prev, cond, noise_level, intermediate_noise[i], **kwargs)
             sample = out.pred_x_prev
             ret.pred_x_t.append(out.pred_x_prev)
             ret.pred_x_0.append(out.pred_x_0)
