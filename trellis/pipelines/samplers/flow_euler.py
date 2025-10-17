@@ -7,6 +7,7 @@ from .base import Sampler
 from .classifier_free_guidance_mixin import ClassifierFreeGuidanceSamplerMixin
 from .guidance_interval_mixin import GuidanceIntervalSamplerMixin
 from collections import defaultdict
+import math
 
 class FlowEulerSampler(Sampler):
     """
@@ -46,7 +47,6 @@ class FlowEulerSampler(Sampler):
         pred_x_0, pred_eps = self._v_to_xstart_eps(x_t=x_t, t=t, v=pred_v)
         return pred_x_0, pred_eps, pred_v
 
-    @torch.no_grad()
     def sample_once(
         self,
         model,
@@ -79,10 +79,29 @@ class FlowEulerSampler(Sampler):
 
         noise = torch.randn(x_t.shape, device=x_t.device) if noise is None else noise
         std_dev_t = np.sqrt(t / (1 - np.where(t == 1, t_prev, t)))*noise_level
-        pred_x_prev = x_t*(1+std_dev_t**2/(2*t)*dt) + pred_v*(1+std_dev_t**2*(1-t)/(2*t))*dt + std_dev_t * np.sqrt(-1*dt) * noise
-        return edict({"pred_x_prev": pred_x_prev, "pred_x_0": pred_x_0})
+        pred_x_prev_mean = x_t*(1+std_dev_t**2/(2*t)*dt) + pred_v*(1+std_dev_t**2*(1-t)/(2*t))*dt
+        pred_x_prev = pred_x_prev_mean + std_dev_t * np.sqrt(-1*dt) * noise
+        return edict({"pred_x_prev": pred_x_prev, "pred_x_0": pred_x_0, "pred_x_prev_mean": pred_x_prev_mean})
 
-    @torch.no_grad()
+    def calculate_log_prob(self, pred_x_prev_mean, pred_x_prev, t, t_prev, noise_level: float = 0.7):
+
+        std_dev_t = np.sqrt(t / (1 - np.where(t == 1, t_prev, t)))*noise_level
+        std_dev_t = torch.tensor(std_dev_t)
+        dt = t_prev - t
+        dt = torch.tensor(dt)
+
+        log_prob = (
+            -((pred_x_prev.detach() - pred_x_prev_mean) ** 2) / (2 * ((std_dev_t * torch.sqrt(-1*dt))**2))
+            - torch.log(std_dev_t * torch.sqrt(-1*dt))
+            - torch.log(torch.sqrt(2 * torch.as_tensor(math.pi)))
+        )
+        log_prob = log_prob.mean(dim=tuple(range(1, log_prob.ndim)))
+        return log_prob
+
+    def get_std_dev_t(self, t, t_prev, noise_level: float = 0.7):
+        std_dev_t = np.sqrt(t / (1 - np.where(t == 1, t_prev, t)))*noise_level
+        return std_dev_t
+
     def sample(
         self,
         model,
@@ -171,7 +190,6 @@ class FlowEulerGuidanceIntervalSampler(GuidanceIntervalSamplerMixin, FlowEulerSa
     """
     Generate samples from a flow-matching model using Euler sampling with classifier-free guidance and interval.
     """
-    @torch.no_grad()
     def sample(
         self,
         model,
