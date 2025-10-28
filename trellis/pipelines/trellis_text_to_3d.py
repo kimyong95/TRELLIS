@@ -184,29 +184,12 @@ class TrellisTextTo3DPipeline(Pipeline):
         """
         # Sample structured latent
         flow_model = self.models['slat_flow_model']
-        if "prior_noise" in sampler_params:
-            prior_noise = sampler_params.pop("prior_noise")
-            prior_noise = torch.nn.functional.adaptive_avg_pool1d(prior_noise, coords.shape[0])
-            prior_noise = einops.rearrange(prior_noise, "B C N -> (B N) C")
-        else:
-            prior_noise = torch.randn(coords.shape[0], flow_model.in_channels).to(self.device)
+        prior_noise = torch.randn(coords.shape[0], flow_model.in_channels).to(self.device)
         noise = sp.SparseTensor(
             feats=prior_noise,
             coords=coords,
         )
         sampler_params = {**self.slat_sampler_params, **sampler_params}
-        if "intermediate_noise" in sampler_params:
-            intermediate_noise = sampler_params["intermediate_noise"]
-            intermediate_noise = torch.stack([
-                torch.nn.functional.adaptive_avg_pool1d(int_noise, coords.shape[0])
-                for int_noise in intermediate_noise
-            ])
-            intermediate_noise = einops.rearrange(intermediate_noise, "T B C N -> T (B N) C")
-            intermediate_noise = [
-                sp.SparseTensor(feats=int_noise, coords=coords)
-                for int_noise in intermediate_noise
-            ]
-            sampler_params["intermediate_noise"] = intermediate_noise
         
         slat = self.slat_sampler.sample(
             flow_model,
