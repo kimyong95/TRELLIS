@@ -8,6 +8,7 @@ from .classifier_free_guidance_mixin import ClassifierFreeGuidanceSamplerMixin
 from .guidance_interval_mixin import GuidanceIntervalSamplerMixin
 from collections import defaultdict
 import math
+import trellis.modules.sparse as sp
 
 class FlowEulerSampler(Sampler):
     """
@@ -74,7 +75,11 @@ class FlowEulerSampler(Sampler):
             - 'pred_x_prev': x_{t-1}.
             - 'pred_x_0': a prediction of x_0.
         """
-        pred_x_0, pred_eps, pred_v = self._get_model_prediction(model, x_t, t, cond, **kwargs)
+        if isinstance(x_t,  sp.SparseTensor):
+            outs = [ self._get_model_prediction(model, x_t_i, t, cond, **kwargs) for x_t_i in x_t]
+            pred_x_0, pred_eps, pred_v = (sp.sparse_cat(xs, dim=0) for xs in zip(*outs))
+        else:
+            pred_x_0, pred_eps, pred_v = self._get_model_prediction(model, x_t, t, cond, **kwargs)
         dt = t_prev - t
 
         noise = torch.randn(x_t.shape, device=x_t.device) if noise is None else noise
