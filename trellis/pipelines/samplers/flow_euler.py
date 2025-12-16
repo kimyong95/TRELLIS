@@ -76,7 +76,7 @@ class FlowEulerSampler(Sampler):
             - 'pred_x_0': a prediction of x_0.
         """
         if isinstance(x_t,  sp.SparseTensor):
-            outs = [ self._get_model_prediction(model, x_t_i, t, cond, **kwargs) for x_t_i in x_t]
+            outs = [ self._get_model_prediction(model, x_t_i, t, cond_i.unsqueeze(0), **kwargs) for x_t_i,cond_i in zip(x_t,cond)]
             pred_x_0, pred_eps, pred_v = (sp.sparse_cat(xs, dim=0) for xs in zip(*outs))
         else:
             pred_x_0, pred_eps, pred_v = self._get_model_prediction(model, x_t, t, cond, **kwargs)
